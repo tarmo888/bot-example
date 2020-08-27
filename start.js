@@ -12,6 +12,7 @@ Array.prototype.forEachAsync = async function(fn) {
 }
 
 const pairingProtocol = process.env.testnet ? 'obyte-tn:' : 'obyte:';
+const maxOutputs = constants.MAX_OUTPUTS_PER_PAYMENT_MESSAGE-1;
 
 var botFistAddress;
 var assocDevice2Amount = {};
@@ -89,14 +90,14 @@ eventBus.on('my_transactions_became_stable', (arrUnits) => {
 					row.amount-1000 + ' bytes sent to ' + assocDeposit2Address[row.address]);
 		});
 		if (!arrOutputs) return;
-		headlessWallet.sendMultiPayment({
-			asset: null,
-			change_address: botFistAddress,
-			base_outputs: arrOutputs
-		}, (err, unit) => {
-			if (err) console.error("failed to send payment: ", err);
-			else console.error("unit " + unit);
-		});
+		var i,j;
+		for (i=0,j=arrOutputs.length; i<j; i+=maxOutputs) {
+			var base_outputs = arrOutputs.slice(i,i+maxOutputs);
+			headlessWallet.sendMultiPayment({change_address: botFistAddress, base_outputs}, (err, unit) => {
+				if (err) console.error("failed to send payment: ", err);
+				else console.error("unit " + unit);
+			});
+		}
 	});
 });
 
