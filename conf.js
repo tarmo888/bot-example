@@ -26,3 +26,4 @@ exports.KEYS_FILENAME = 'keys.json';
 exports.admin_email = '';
 exports.from_email = '';
 
+exports.timeoutHours = 24*30;
