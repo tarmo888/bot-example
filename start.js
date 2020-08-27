@@ -7,58 +7,98 @@ const eventBus = require('ocore/event_bus');
 const validationUtils = require('ocore/validation_utils');
 const headlessWallet = require('headless-obyte');
 
-/**
- * headless wallet is ready
- */
+Array.prototype.forEachAsync = async function(fn) {
+	for (let t of this) { await fn(t) }
+}
+
+const pairingProtocol = process.env.testnet ? 'obyte-tn:' : 'obyte:';
+
+var botFistAddress;
+var assocDevice2Amount = {};
+var assocDeposit2Device = {};
+var assocDeposit2Address = {};
+
 eventBus.once('headless_wallet_ready', () => {
 	headlessWallet.setupChatEventHandlers();
+
+	headlessWallet.readFirstAddress(address => {
+		botFistAddress = address;
+
+		eventBus.on('paired', (from_address, pairing_secret) => {
+			const device = require('ocore/device.js');
+			device.sendMessageToDevice(from_address, 'text', "How much do you want to send in bytes?");
+		});
 	
-	/**
-	 * user pairs his device with the bot
-	 */
-	eventBus.on('paired', (from_address, pairing_secret) => {
-		// send a geeting message
-		const device = require('ocore/device.js');
-		device.sendMessageToDevice(from_address, 'text', "Welcome to my new shiny bot!");
+		eventBus.on('text', (from_address, text) => {
+			const device = require('ocore/device.js');
+			text = text.trim();
+			let newAmountMatches = text.match(/^\d+$/);
+			
+			if (newAmountMatches) {
+				if (parseInt(newAmountMatches[0]) < 10000) {
+					return device.sendMessageToDevice(from_address, 'text', "Too small. Enter 10000 or more.");
+				}
+				assocDevice2Amount[from_address] = parseInt(newAmountMatches[0]);
+				device.sendMessageToDevice(from_address, 'text',
+						"Amount changed to "+ assocDevice2Amount[from_address] + " bytes.");
+			}
+			if (validationUtils.isValidAddress(text)) {
+				headlessWallet.issueNextMainAddress((address) => {
+					assocDeposit2Device[address] = from_address;
+					assocDeposit2Address[address] = text;
+					let amount = assocDevice2Amount[from_address] ? assocDevice2Amount[from_address] : 10000;
+					device.sendMessageToDevice(from_address, 'text',
+							'[Send payment]('+ pairingProtocol + address + '?amount=' + amount + ')');
+				});
+			}
+			else {
+				device.sendMessageToDevice(from_address, 'text',
+						"Please insert the address whom you want to send or the amount of bytes you want to send.");
+			}
+		});
 	});
-
-	/**
-	 * user sends message to the bot
-	 */
-	eventBus.on('text', (from_address, text) => {
-		// analyze the text and respond
-		text = text.trim();
-		
-		const device = require('ocore/device.js');
-		if (!text.match(/^You said/))
-			device.sendMessageToDevice(from_address, 'text', "You said: " + text);
-	});
-
 });
 
-
-/**
- * user pays to the bot
- */
 eventBus.on('new_my_transactions', (arrUnits) => {
-	// handle new unconfirmed payments
-	// and notify user
-	
-//	const device = require('ocore/device.js');
-//	device.sendMessageToDevice(device_address_determined_by_analyzing_the_payment, 'text', "Received your payment");
+	const device = require('ocore/device.js');
+	db.query("SELECT address, amount FROM outputs \
+			WHERE unit IN(?) AND asset IS NULL;", [arrUnits], (rows) => {
+		if (rows.length === 0) return;
+		rows.forEach((row) => {
+			if (!assocDeposit2Device[row.address]) return;
+			device.sendMessageToDevice(assocDeposit2Device[row.address], 'text',
+					"Received your payment of " + row.amount + " bytes.\nWaiting for the transaction to confirm.");
+		});
+	});
 });
 
-/**
- * payment is confirmed
- */
 eventBus.on('my_transactions_became_stable', (arrUnits) => {
-	// handle payments becoming confirmed
-	// and notify user
-	
-//	const device = require('ocore/device.js');
-//	device.sendMessageToDevice(device_address_determined_by_analyzing_the_payment, 'text', "Your payment is confirmed");
+	const device = require('ocore/device.js');
+	db.query("SELECT address, SUM(amount) AS amount FROM outputs \
+			WHERE unit IN(?) AND asset IS NULL GROUP BY address;", [arrUnits], async (rows)  => {
+		if (rows.length === 0) return;
+		var arrOutputs = [];
+		await rows.forEachAsync((row) => {
+			if (!assocDeposit2Device[row.address]) return;
+			let from_address = assocDeposit2Device[row.address];
+			if (!assocDeposit2Address[row.address]) {
+				return device.sendMessageToDevice(from_address, 'text', "Sorry. Failed to find address.");
+			}
+			arrOutputs.push({amount: row.amount-1000, address: assocDeposit2Address[row.address]});
+			device.sendMessageToDevice(from_address, 'text',
+					row.amount-1000 + ' bytes sent to ' + assocDeposit2Address[row.address]);
+		});
+		if (!arrOutputs) return;
+		headlessWallet.sendMultiPayment({
+			asset: null,
+			change_address: botFistAddress,
+			base_outputs: arrOutputs
+		}, (err, unit) => {
+			if (err) console.error("failed to send payment: ", err);
+			else console.error("unit " + unit);
+		});
+	});
 });
-
 
 
 process.on('unhandledRejection', up => { throw up; });
