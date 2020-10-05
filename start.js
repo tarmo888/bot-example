@@ -14,7 +14,7 @@ Array.prototype.forEachAsync = async function(fn) {
 const pairingProtocol = process.env.testnet ? 'obyte-tn:' : 'obyte:';
 const maxOutputs = constants.MAX_OUTPUTS_PER_PAYMENT_MESSAGE-1;
 
-var botFistAddress;
+var botFirstAddress;
 var assocDevice2Amount = {};
 var assocDeposit2Device = {};
 var assocDeposit2Address = {};
@@ -23,7 +23,7 @@ eventBus.once('headless_wallet_ready', () => {
 	headlessWallet.setupChatEventHandlers();
 
 	headlessWallet.readFirstAddress(address => {
-		botFistAddress = address;
+		botFirstAddress = address;
 
 		eventBus.on('paired', (from_address, pairing_secret) => {
 			const device = require('ocore/device.js');
@@ -93,7 +93,7 @@ eventBus.on('my_transactions_became_stable', (arrUnits) => {
 		var i,j;
 		for (i=0,j=arrOutputs.length; i<j; i+=maxOutputs) {
 			var base_outputs = arrOutputs.slice(i,i+maxOutputs);
-			headlessWallet.sendMultiPayment({change_address: botFistAddress, base_outputs}, (err, unit) => {
+			headlessWallet.sendMultiPayment({change_address: botFirstAddress, base_outputs}, (err, unit) => {
 				if (err) console.error("failed to send payment: ", err);
 				else console.error("unit " + unit);
 			});
